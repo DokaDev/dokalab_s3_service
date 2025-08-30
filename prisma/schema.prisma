@@ -26,13 +26,16 @@ model Bucket {
 model File {
   id Int @id @default(autoincrement())
 
+  key String @db.VarChar(512) // s3 object key
   originalFilename String @map("original_filename") @db.VarChar(255)
-  uuidFilename String @map("uuid_filename") @db.VarChar(255)
 
   fileSize BigInt @map("file_size") // per byte -> npm i graphql-scalars
 
   uploadedAt DateTime @map("uploaded_at") @default(now())
+  deletedAt DateTime? @map("deleted_at")
 
   bucketId Int  @map("bucket_id")
   bucket Bucket @relation(fields: [bucketId], references: [id])
+
+  @@map("files")
 }

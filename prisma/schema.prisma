@@ -1,0 +1,38 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Bucket {
+  id Int @id @default(autoincrement())
+  name String @unique
+
+  files File[]
+
+  @@map("buckets")
+}
+
+model File {
+  id Int @id @default(autoincrement())
+
+  originalFilename String @map("original_filename") @db.VarChar(255)
+  uuidFilename String @map("uuid_filename") @db.VarChar(255)
+
+  fileSize BigInt @map("file_size") // per byte -> npm i graphql-scalars
+
+  uploadedAt DateTime @map("uploaded_at") @default(now())
+
+  bucketId Int  @map("bucket_id")
+  bucket Bucket @relation(fields: [bucketId], references: [id])
+}

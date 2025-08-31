@@ -6,7 +6,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -19,7 +18,8 @@ model Bucket {
   name String @unique
 
   createdAt DateTime @map("created_at") @default(now())
-  updatedAt DateTime @map("updated_at") @default(now()) @updatedAt
+
+  deletedAt DateTime? @map("deleted_at")
 
   files File[]
 

@@ -15,8 +15,6 @@ import { BucketModule } from './bucket/bucket.module';
     }),
     S3Module,
     BucketModule,
-    // FileModule,
-    // MqModule
   ],
   controllers: [],
   providers: [],

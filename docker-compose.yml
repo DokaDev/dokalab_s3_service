@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  dokalab_blog_db:
+    image: postgres:17-alpine
+    container_name: dokalab_blog_db_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: dokalab_blog_db
+    ports:
+      - "5436:5432"
+    volumes:
+      - dokalab_blog_db:/var/lib/postgresql/data
+    networks:
+      - dokalab_personal_web_network
+    restart: unless-stopped
+
+  dokalab_s3_db:
+    image: postgres:17-alpine
+    container_name: dokalab_s3_db_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: dokalab_s3_db
+    ports:
+      - "5440:5432"
+    volumes:
+      - dokalab_s3_db:/var/lib/postgresql/data
+    networks:
+      - dokalab_personal_web_network
+    restart: unless-stopped
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: dokalab_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - dokalab_personal_web_network
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: dokalab_kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "29092:29092"
+    depends_on:
+      - zookeeper
+    networks:
+      - dokalab_personal_web_network
+    restart: unless-stopped
+
+  dokalab_s3_minio_storage:
+    image: quay.io/minio/minio
+    container_name: dokalab_s3_minio_storage
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # MinIO Kafka notification settings
+      MINIO_NOTIFY_KAFKA_ENABLE_PRIMARY: "on"
+      MINIO_NOTIFY_KAFKA_BROKERS_PRIMARY: "kafka:9092"
+      MINIO_NOTIFY_KAFKA_TOPIC_PRIMARY: "minio-events"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - dokalab_s3_minio_storage:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    networks:
+      - dokalab_personal_web_network
+    depends_on:
+      - kafka
+
+  dokalab_minio_init:
+    image: minio/mc
+    container_name: dokalab_minio_init
+    depends_on:
+      - dokalab_s3_minio_storage
+      - kafka
+    entrypoint: >
+      /bin/sh -c "
+        echo '🚀 Starting MinIO configuration...';
+        sleep 30;
+        
+        echo '📝 Setting up MinIO alias...';
+        mc alias set local http://dokalab_s3_minio_storage:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+        
+        echo '📦 Creating default buckets...';
+        mc mb local/blog-images || echo 'blog-images bucket already exists';
+        mc mb local/portfolio-assets || echo 'portfolio-assets bucket already exists';
+        mc mb local/test-bucket || echo 'test-bucket bucket already exists';
+        
+        echo '⚙️  Configuring Kafka notification...';
+        mc admin config set local notify_kafka:primary brokers=\"kafka:9092\" topic=\"minio-events\";
+        
+        echo '🔄 Restarting MinIO service...';
+        mc admin service restart local;
+        
+        echo '⏳ Waiting for MinIO restart...';
+        sleep 15;
+        
+        echo '📢 Adding bucket event notifications...';
+        mc event add local/blog-images arn:minio:sqs::primary:kafka --event put,delete || echo 'Event already configured for blog-images';
+        mc event add local/portfolio-assets arn:minio:sqs::primary:kafka --event put,delete || echo 'Event already configured for portfolio-assets';
+        mc event add local/test-bucket arn:minio:sqs::primary:kafka --event put,delete || echo 'Event already configured for test-bucket';
+        
+        echo '✅ MinIO configuration completed successfully!';
+        echo '📋 Current bucket events:';
+        mc event list local/blog-images;
+        mc event list local/portfolio-assets;
+        mc event list local/test-bucket;
+      "
+    networks:
+      - dokalab_personal_web_network
+    restart: "no"
+
+volumes:
+  dokalab_blog_db:
+    driver: local
+  dokalab_s3_db:
+    driver: local
+  dokalab_s3_minio_storage:
+    driver: local
+
+networks:
+  dokalab_personal_web_network:
+    external: true
